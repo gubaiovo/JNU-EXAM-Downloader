@@ -6,5 +6,5 @@ This is the downloader for my other project [JNU-EXAM](https://github.com/gubaio
 
 ``` bash
 uv sync
-nuitka --standalone --onefile --enable-plugin=pyqt6 --windows-console-mode=disable .\main.py
+nuitka --standalone --onefile --enable-plugin=pyqt6 --windows-console-mode=disable --windows-icon-from-ico=.\logo.ico .\main.py
 ```
