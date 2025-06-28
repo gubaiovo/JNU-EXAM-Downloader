@@ -513,10 +513,13 @@ class MainWindow(QMainWindow):
     def show_about(self):
         """显示关于对话框"""
         QMessageBox.about(self, "关于期末无挂",
-                          "这是一个用于下载 JNU-EXAM 考试资料的应用程序\n\n"
+                          "用于下载 JNU-EXAM 考试资料\n\n"
                           "版本: 1.0\n"
-                          "作者: Your Name\n"
-                          "GitHub: https://github.com/gubaiovo/JNU-EXAM")
+                          "作者: 顾白\n"
+                          "qq: 470014599\n"
+                          "期末无挂qq群：757343447\n"
+                          "GitHub: https://github.com/gubaiovo/JNU-EXAM-Downloader\n"
+                          "程序遵循 MIT 协议，完全开源")
 
     def download_directory_structure(self):
         if self.status_bar is None:
