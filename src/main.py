@@ -10,22 +10,20 @@ import subprocess
 from pathlib import Path
 
 
-SOURCE_CONFIG = {
-    "Github": {
-        "json_url": "https://raw.githubusercontent.com/gubaiovo/JNU-EXAM/main/directory_structure.json",
-        "file_key": "github_raw_url"
-    },
-    "Gitee": {
-        "json_url": "https://gitee.com/gubaiovo/jnu-exam/raw/main/directory_structure.json",
-        "file_key": "gitee_raw_url"
-    },
+SOURCE_LIST_URL = "https://www.gubaiovo.com/jnu-exam/source_list.json"
+FALLBACK_CONFIG = {
     "CloudFlare R2": {
         "json_url": "https://jnuexam.xyz/directory_structure.json",
         "file_key": "cf_url"
+    },
+    "Github": {
+        "json_url": "https://raw.githubusercontent.com/gubaiovo/JNU-EXAM/main/directory_structure.json",
+        "file_key": "github_raw_url"
     }
 }
 
-DEFAULT_SOURCE = "CloudFlare R2"
+SOURCE_CONFIG = {} 
+DEFAULT_SOURCE = ""
 
 
 def main(page: ft.Page):
@@ -36,6 +34,45 @@ def main(page: ft.Page):
     page.padding = 0 
     page.spacing = 0
 
+    def load_source_config():
+        global SOURCE_CONFIG, DEFAULT_SOURCE
+        
+        print(f"正在尝试从 {SOURCE_LIST_URL} 加载源列表...")
+        try:
+            resp = requests.get(SOURCE_LIST_URL, timeout=5)
+            resp.raise_for_status()
+            remote_data = resp.json() 
+            
+            new_config = {}
+            for name, details in remote_data.items():
+                # 远程用 dir_url，程序内部用 json_url，这里做一下转换
+                new_config[name] = {
+                    "json_url": details.get("json_url"),
+                    "file_key": details.get("file_key")
+                }
+            
+            if not new_config:
+                raise ValueError("远程源列表解析为空")
+                
+            SOURCE_CONFIG.update(new_config)
+            print("远程源列表加载成功")
+            
+        except Exception as e:
+            print(f"远程源加载失败 ({e})，使用本地回退配置。")
+            SOURCE_CONFIG.update(FALLBACK_CONFIG)
+        
+        keys = list(SOURCE_CONFIG.keys())
+        r2_key = next((k for k in keys if "cloudflare r2" in k.lower()), None)
+        
+        if r2_key:
+            DEFAULT_SOURCE = r2_key
+        elif keys:
+            DEFAULT_SOURCE = keys[0]
+        else:
+            DEFAULT_SOURCE = "Unknown"
+
+    load_source_config()
+    
     state = {
         "current_source": DEFAULT_SOURCE,
         "json_data": None,
@@ -65,7 +102,10 @@ def main(page: ft.Page):
 
     def get_current_file_url(info):
         if not info: return None
-        config = SOURCE_CONFIG.get(state["current_source"], SOURCE_CONFIG[DEFAULT_SOURCE])
+        config = SOURCE_CONFIG.get(state["current_source"])
+        if not config:
+            config = SOURCE_CONFIG.get(DEFAULT_SOURCE)
+        if not config: return None
         return info.get(config["file_key"])
 
     def get_default_downloads_dir():
@@ -173,7 +213,7 @@ def main(page: ft.Page):
         label="下载源",
         prefix_icon=ft.Icons.CLOUD_DOWNLOAD_OUTLINED,
         options=[ft.dropdown.Option(k) for k in SOURCE_CONFIG.keys()],
-        value=DEFAULT_SOURCE,
+        value=state["current_source"],
         text_size=14,
         content_padding=10,
         border_color=ft.Colors.OUTLINE_VARIANT,
@@ -410,7 +450,9 @@ def main(page: ft.Page):
 
         def _task():
             try:
-                config = SOURCE_CONFIG.get(src, SOURCE_CONFIG[DEFAULT_SOURCE])
+                if src not in SOURCE_CONFIG:
+                    raise ValueError(f"源 {src} 未定义")
+                config = SOURCE_CONFIG[src]
                 url = config["json_url"]
                 res = requests.get(url, timeout=15)
                 res.raise_for_status()
