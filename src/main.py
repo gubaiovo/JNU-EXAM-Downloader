@@ -9,8 +9,8 @@ import platform
 import subprocess
 from pathlib import Path
 
+DEFAULT_CONFIG_URL = "https://www.gubaiovo.com/jnu-exam/source_list.json"
 
-SOURCE_LIST_URL = "https://www.gubaiovo.com/jnu-exam/source_list.json"
 FALLBACK_CONFIG = {
     "CloudFlare R2": {
         "json_url": "https://jnuexam.xyz/directory_structure.json",
@@ -34,47 +34,12 @@ def main(page: ft.Page):
     page.padding = 0 
     page.spacing = 0
 
-    def load_source_config():
-        global SOURCE_CONFIG, DEFAULT_SOURCE
-        
-        print(f"正在尝试从 {SOURCE_LIST_URL} 加载源列表...")
-        try:
-            resp = requests.get(SOURCE_LIST_URL, timeout=5)
-            resp.raise_for_status()
-            remote_data = resp.json() 
-            
-            new_config = {}
-            for name, details in remote_data.items():
-                # 远程用 dir_url，程序内部用 json_url，这里做一下转换
-                new_config[name] = {
-                    "json_url": details.get("json_url"),
-                    "file_key": details.get("file_key")
-                }
-            
-            if not new_config:
-                raise ValueError("远程源列表解析为空")
-                
-            SOURCE_CONFIG.update(new_config)
-            print("远程源列表加载成功")
-            
-        except Exception as e:
-            print(f"远程源加载失败 ({e})，使用本地回退配置。")
-            SOURCE_CONFIG.update(FALLBACK_CONFIG)
-        
-        keys = list(SOURCE_CONFIG.keys())
-        r2_key = next((k for k in keys if "cloudflare r2" in k.lower()), None)
-        
-        if r2_key:
-            DEFAULT_SOURCE = r2_key
-        elif keys:
-            DEFAULT_SOURCE = keys[0]
-        else:
-            DEFAULT_SOURCE = "Unknown"
+    stored_url = page.client_storage.get("custom_config_url")
+    current_config_url = stored_url if stored_url else DEFAULT_CONFIG_URL
 
-    load_source_config()
-    
     state = {
-        "current_source": DEFAULT_SOURCE,
+        "config_url": current_config_url, # 存储当前的源列表 URL
+        "current_source": "", # 稍后在 load_source_config 中确定
         "json_data": None,
         "all_flat_files": [], 
         "selected_file_info": None,
@@ -82,13 +47,64 @@ def main(page: ft.Page):
         "is_downloading": False
     }
 
-
+    # 辅助函数提前定义，方便后面调用
     def show_snack(msg, is_error=False):
         page.open(ft.SnackBar(
             content=ft.Text(msg), 
             bgcolor=ft.Colors.ERROR if is_error else ft.Colors.PRIMARY
         ))
 
+    def load_source_config(is_refresh=False):
+        global SOURCE_CONFIG, DEFAULT_SOURCE
+        
+        target_url = state["config_url"] # 使用 state 中的 URL
+        print(f"正在尝试从 {target_url} 加载源列表...")
+        
+        try:
+            resp = requests.get(target_url, timeout=5)
+            resp.raise_for_status()
+            remote_data = resp.json() 
+            
+            new_config = {}
+            for name, details in remote_data.items():
+                new_config[name] = {
+                    "json_url": details.get("dir_url", details.get("json_url")), # 兼容 dir_url 或 json_url 字段
+                    "file_key": details.get("file_key")
+                }
+            
+            if not new_config:
+                raise ValueError("远程源列表解析为空")
+            
+            # 清空旧配置并更新
+            SOURCE_CONFIG.clear()
+            SOURCE_CONFIG.update(new_config)
+            print("远程源列表加载成功")
+            if is_refresh: show_snack("源配置加载成功")
+            
+        except Exception as e:
+            print(f"远程源加载失败 ({e})，使用本地回退配置。")
+            SOURCE_CONFIG.clear()
+            SOURCE_CONFIG.update(FALLBACK_CONFIG)
+            if is_refresh: show_snack(f"加载失败，已回退本地配置: {e}", True)
+        
+        # 确定默认源逻辑
+        keys = list(SOURCE_CONFIG.keys())
+        r2_key = next((k for k in keys if "cloudflare r2" in k.lower()), None)
+        
+        # 如果当前选中的源在新配置里不存在，或者尚未设置，则重置
+        if state["current_source"] not in SOURCE_CONFIG:
+            if r2_key:
+                DEFAULT_SOURCE = r2_key
+            elif keys:
+                DEFAULT_SOURCE = keys[0]
+            else:
+                DEFAULT_SOURCE = "Unknown"
+            state["current_source"] = DEFAULT_SOURCE
+
+    # 启动时先加载一次
+    load_source_config()
+    
+    # --- 原有的辅助函数 (保持不变) ---
     def format_size(size):
         if size >= 1024 * 1024: return f"{size / 1024 / 1024:.2f} MB"
         if size >= 1024: return f"{size / 1024:.2f} KB"
@@ -113,22 +129,18 @@ def main(page: ft.Page):
             try:
                 import winreg
                 sub_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub_key) as key:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub_key) as key: # type: ignore
                     try:
-                        path, _ = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")
+                        path, _ = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}") # type: ignore
                         return Path(path)
-                    except FileNotFoundError:
-                        print("注册表中未找到下载路径 GUID，尝试默认路径")
-            except Exception as e:
-                print(f"获取 Windows 下载路径失败: {e}")
-
+                    except FileNotFoundError: pass
+            except Exception: pass
         return Path.home() / "Downloads"
 
     def open_file_in_explorer(path):
         if not path or not os.path.exists(path):
             show_snack("文件不存在", True)
             return
-
         system_name = platform.system()
         try:
             if system_name == "Windows":
@@ -139,10 +151,8 @@ def main(page: ft.Page):
                 folder = os.path.dirname(path)
                 subprocess.Popen(["xdg-open", folder])
         except Exception as e:
-            print(f"打开文件夹失败: {e}")
             show_snack(f"无法打开文件夹: {e}", True)
 
-    
     def start_download_task(url, save_path_str):
         if state["is_downloading"]: return
         state["is_downloading"] = True
@@ -196,7 +206,6 @@ def main(page: ft.Page):
 
         threading.Thread(target=_task, daemon=True).start()
 
-    
     def on_save_file_result(e: ft.FilePickerResultEvent):
         if not e.path: return
         info = state["selected_file_info"]
@@ -207,7 +216,8 @@ def main(page: ft.Page):
     file_picker = ft.FilePicker(on_result=on_save_file_result)
     page.overlay.append(file_picker)
 
-
+    # --- UI 控件 ---
+    
     source_dropdown = ft.Dropdown(
         width=180,
         label="下载源",
@@ -221,7 +231,9 @@ def main(page: ft.Page):
 
     refresh_btn = ft.IconButton(icon=ft.Icons.REFRESH, tooltip="刷新目录")
     theme_btn = ft.IconButton(icon=ft.Icons.BRIGHTNESS_4, tooltip="切换主题")
+    settings_btn = ft.IconButton(icon=ft.Icons.SETTINGS, tooltip="源配置")
 
+    # --- 搜索与列表逻辑 ---
     def on_search_change(e):
         query = e.control.value.strip().lower()
         if not query:
@@ -290,9 +302,9 @@ def main(page: ft.Page):
         if state["last_downloaded_path"]:
             open_file_in_explorer(state["last_downloaded_path"])
 
-    quick_dl_btn = ft.FilledButton("快速下载 (默认目录)", icon=ft.Icons.DOWNLOAD_ROUNDED, height=45, disabled=True, on_click=quick_download_click, expand=True)
+    quick_dl_btn = ft.FilledButton("快速下载 (电脑默认目录)", icon=ft.Icons.DOWNLOAD_ROUNDED, height=45, disabled=True, on_click=quick_download_click, expand=True)
     download_btn = ft.OutlinedButton("另存为...", icon=ft.Icons.SAVE_AS, height=45, disabled=True, on_click=save_as_click, expand=True)
-    browser_dl_btn = ft.OutlinedButton("浏览器", icon=ft.Icons.OPEN_IN_BROWSER, height=45, disabled=True, on_click=browser_download_click, width=120)
+    browser_dl_btn = ft.OutlinedButton("浏览器打开", icon=ft.Icons.OPEN_IN_BROWSER, height=45, disabled=True, on_click=browser_download_click, width=120)
     open_folder_btn = ft.TextButton("打开文件所在位置", icon=ft.Icons.FOLDER_OPEN, visible=False, on_click=open_folder_click)
 
     download_progress = ft.ProgressBar(value=0, visible=False, height=4)
@@ -339,7 +351,6 @@ def main(page: ft.Page):
         )
     )
 
-
     def update_details(info):
         state["selected_file_info"] = info
         state["last_downloaded_path"] = None
@@ -382,29 +393,20 @@ def main(page: ft.Page):
         results = [f for f in state["all_flat_files"] if query in f['name'].lower()]
         
         if not results:
-            tree_view.controls.append(
-                ft.Container(
-                    content=ft.Text("未找到匹配文件", color=ft.Colors.OUTLINE),
-                    padding=20,
-                    alignment=ft.alignment.center
-                )
-            )
+            tree_view.controls.append(ft.Container(content=ft.Text("未找到匹配文件", color=ft.Colors.OUTLINE), padding=20, alignment=ft.alignment.center))
         else:
             for f in results:
-                tree_view.controls.append(
-                    ft.ListTile(
-                        title=ft.Text(f['name'], weight=ft.FontWeight.BOLD),
-                        subtitle=ft.Text(f['path'], size=12, color=ft.Colors.OUTLINE),
-                        leading=ft.Icon(ft.Icons.INSERT_DRIVE_FILE_OUTLINED, size=18),
-                        on_click=lambda e, i=f: update_details(i)
-                    )
-                )
+                tree_view.controls.append(ft.ListTile(
+                    title=ft.Text(f['name'], weight=ft.FontWeight.BOLD),
+                    subtitle=ft.Text(f['path'], size=12, color=ft.Colors.OUTLINE),
+                    leading=ft.Icon(ft.Icons.INSERT_DRIVE_FILE_OUTLINED, size=18),
+                    on_click=lambda e, i=f: update_details(i)
+                ))
         page.update()
 
     def process_tree(data):
         tree_view.controls.clear()
         path_map = {"": tree_view.controls}
-        
         all_dirs = sorted(data.get('dirs', []), key=lambda d: d['path'].count('/'))
         for d in all_dirs:
             path = d['path']
@@ -421,7 +423,6 @@ def main(page: ft.Page):
             )
             path_map[path] = tile.controls
             path_map.get(parent, tree_view.controls).append(tile)
-            
             if 'files' in d:
                 for f in sorted(d['files'], key=lambda x: x['name']):
                     tile.controls.append(create_file_tile(f))
@@ -429,7 +430,6 @@ def main(page: ft.Page):
         if 'files' in data:
             for f in sorted(data['files'], key=lambda x: x['name']):
                 tree_view.controls.append(create_file_tile(f))
-        
         page.update()
 
     def create_file_tile(f_info):
@@ -458,11 +458,9 @@ def main(page: ft.Page):
                 res.raise_for_status()
                 data = json.loads(res.text)
                 state["json_data"] = data
-                
                 flat_files = []
                 flatten_files_recursive(data, flat_files)
                 state["all_flat_files"] = flat_files
-                
                 process_tree(data)
                 status_text.value = f"已更新 ({len(flat_files)} 文件)"
                 show_snack(f"已从 {src} 刷新目录")
@@ -488,6 +486,65 @@ def main(page: ft.Page):
         page.update()
     theme_btn.on_click = on_theme_change
 
+    config_url_field = ft.TextField(label="源列表配置 URL", value=state["config_url"], expand=True)
+
+    def close_dlg(e):
+        config_dialog.open = False
+        page.update()
+
+    def save_config(e):
+        new_url = (config_url_field.value or "").strip()
+        if not new_url:
+            show_snack("URL 不能为空", True)
+            return
+        
+        # 1. 更新 state
+        state["config_url"] = new_url
+        # 2. 持久化存储
+        page.client_storage.set("custom_config_url", new_url)
+        
+        close_dlg(None)
+        show_snack("正在应用新配置...")
+        page.update()
+        
+        # 3. 重新加载配置并刷新列表
+        load_source_config(is_refresh=True)
+        
+        # 更新下拉框选项
+        source_dropdown.options = [ft.dropdown.Option(k) for k in SOURCE_CONFIG.keys()]
+        source_dropdown.value = state["current_source"]
+        
+        load_data()
+        page.update()
+
+    def reset_config(e):
+        config_url_field.value = DEFAULT_CONFIG_URL
+        page.update()
+
+    config_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("配置源"),
+        content=ft.Column([
+            ft.Text("设置获取源列表的远程地址："),
+            config_url_field,
+            ft.TextButton("恢复默认", on_click=reset_config)
+        ], height=120, tight=True),
+        actions=[
+            ft.TextButton("取消", on_click=close_dlg),
+            ft.TextButton("保存并刷新", on_click=save_config),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+    
+    page.overlay.append(config_dialog)
+    def open_settings(e):
+        print("尝试打开设置...")
+        config_url_field.value = state["config_url"] 
+        config_dialog.open = True
+        page.update()
+
+    settings_btn.on_click = open_settings
+
     header = ft.Container(
         padding=ft.padding.symmetric(horizontal=20, vertical=10),
         border=ft.border.only(bottom=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT)),
@@ -498,6 +555,7 @@ def main(page: ft.Page):
             source_dropdown,
             ft.Container(expand=True),
             refresh_btn,
+            settings_btn, 
             theme_btn,
         ])
     )
