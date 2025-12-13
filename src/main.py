@@ -89,12 +89,12 @@ def main(page: ft.Page):
         
         # 确定默认源逻辑
         keys = list(SOURCE_CONFIG.keys())
-        r2_key = next((k for k in keys if "cloudflare r2" in k.lower()), None)
+        lanzou_key = next((k for k in keys if "cloudflare r2" in k.lower()), None)
         
         # 如果当前选中的源在新配置里不存在，或者尚未设置，则重置
         if state["current_source"] not in SOURCE_CONFIG:
-            if r2_key:
-                DEFAULT_SOURCE = r2_key
+            if lanzou_key:
+                DEFAULT_SOURCE = lanzou_key
             elif keys:
                 DEFAULT_SOURCE = keys[0]
             else:
