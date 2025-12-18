@@ -1,5 +1,6 @@
 import flet as ft
-import requests
+import urllib.request
+# import requests
 import json
 import os
 import threading
@@ -61,9 +62,8 @@ def main(page: ft.Page):
         print(f"正在尝试从 {target_url} 加载源列表...")
         
         try:
-            resp = requests.get(target_url, timeout=5)
-            resp.raise_for_status()
-            remote_data = resp.json() 
+            with urllib.request.urlopen(target_url, timeout=5) as resp:
+                remote_data = json.loads(resp.read().decode('utf-8'))
             
             new_config = {}
             for name, details in remote_data.items():
@@ -89,12 +89,12 @@ def main(page: ft.Page):
         
         # 确定默认源逻辑
         keys = list(SOURCE_CONFIG.keys())
-        lanzou_key = next((k for k in keys if "蓝奏云 测试" in k.lower()), None)
+        r2_key = next((k for k in keys if "cloudflare r2" in k.lower()), None)
         
         # 如果当前选中的源在新配置里不存在，或者尚未设置，则重置
         if state["current_source"] not in SOURCE_CONFIG:
-            if lanzou_key:
-                DEFAULT_SOURCE = lanzou_key
+            if r2_key:
+                DEFAULT_SOURCE = r2_key
             elif keys:
                 DEFAULT_SOURCE = keys[0]
             else:
@@ -173,19 +173,20 @@ def main(page: ft.Page):
             try:
                 print(f"下载目标: {save_path}")
                 save_path.parent.mkdir(parents=True, exist_ok=True)
-
-                with requests.get(url, stream=True, timeout=60) as r:
-                    r.raise_for_status()
-                    total = int(r.headers.get('content-length', 0))
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as r:
+                    total = int(r.info().get('Content-Length', 0))
                     downloaded = 0
                     with open(save_path, 'wb') as f:
-                        for chunk in r.iter_content(chunk_size=8192):
-                            if chunk:
-                                f.write(chunk)
-                                downloaded += len(chunk)
-                                if total > 0:
-                                    download_progress.value = downloaded / total
-                                    page.update()
+                        while True:
+                            chunk = r.read(8192)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total > 0:
+                                download_progress.value = downloaded / total
+                                page.update()
                 
                 state["last_downloaded_path"] = str(save_path)
                 status_text.value = "下载完成"
@@ -454,9 +455,21 @@ def main(page: ft.Page):
                     raise ValueError(f"源 {src} 未定义")
                 config = SOURCE_CONFIG[src]
                 url = config["json_url"]
-                res = requests.get(url, timeout=15)
-                res.raise_for_status()
-                data = json.loads(res.text)
+                req = urllib.request.Request(
+                    url, 
+                    headers={'User-Agent': 'Mozilla/5.0'}
+                )
+                
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    # urllib 会在此时自动检查状态码，如果是 404/500 会直接跳到 except 块
+                    # 对应 res.read().decode()
+                    raw_data = response.read().decode('utf-8')
+                    data = json.loads(raw_data)
+                    
+                    # 如果你确实需要获取状态码（虽然 200 是默认成功的）
+                    status = response.getcode() 
+                    
+                # 此时 data 已经是解析好的 JSON 对象
                 state["json_data"] = data
                 flat_files = []
                 flatten_files_recursive(data, flat_files)
