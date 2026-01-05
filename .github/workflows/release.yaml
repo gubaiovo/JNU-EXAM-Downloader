@@ -25,7 +25,7 @@ jobs:
             ext: .exe
           # --- Linux ---
           - platform: linux/amd64
-            args: -upx 
+            args: -upx -tags webkit2_41
             ext: ""
 
 
