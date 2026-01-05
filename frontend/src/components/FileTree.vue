@@ -11,7 +11,6 @@ const props = defineProps({
 const emit = defineEmits(['select-file'])
 const isOpen = ref(false)
 
-// 构建树逻辑保持不变...
 function buildTree(flatData) {
   const rootDirs = [] 
   const dirMap = {} 

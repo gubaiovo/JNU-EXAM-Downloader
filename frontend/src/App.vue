@@ -4,7 +4,6 @@ import { FetchSourceList, FetchDirectory, DownloadFile, SelectSavePath, OpenFile
 import { EventsOn } from '../wailsjs/runtime'
 import FileTree from './components/FileTree.vue'
 
-// --- 图标组件 (简单的 SVG 封装) ---
 const Icons = {
   Sun: `<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
   Moon: `<path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
@@ -17,7 +16,6 @@ const Icons = {
 
 const DEFAULT_CONFIG_URL = "https://www.gubaiovo.com/jnu-exam/source_list.json"
 
-// --- State Management ---
 const state = reactive({
   sources: {},
   currentSource: "",
@@ -29,12 +27,12 @@ const state = reactive({
   status: "就绪",
   lastDownloadPath: "",
   configUrl: DEFAULT_CONFIG_URL,
-  isDark: false, // 主题状态
-  showSettings: false // 设置弹窗状态
+  isDark: false, 
+  showSettings: false 
 })
 
 // --- Resizable Sidebar Logic ---
-const sidebarWidth = ref(300) // 默认宽度
+const sidebarWidth = ref(300) 
 const isResizing = ref(false)
 
 function startResize() {
@@ -42,12 +40,11 @@ function startResize() {
   document.addEventListener('mousemove', doResize)
   document.addEventListener('mouseup', stopResize)
   document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none' // 防止拖拽时选中文字
+  document.body.style.userSelect = 'none'
 }
 
 function doResize(e) {
   if (isResizing.value) {
-    // 限制最小宽度 200px, 最大宽度 600px
     let newWidth = e.clientX
     if (newWidth < 200) newWidth = 200
     if (newWidth > 600) newWidth = 600
@@ -67,7 +64,6 @@ const searchQuery = ref("")
 
 // --- Lifecycle & Init ---
 onMounted(async () => {
-  // 1. 读取本地存储的主题和配置
   const storedUrl = localStorage.getItem('custom_source_url')
   if (storedUrl) state.configUrl = storedUrl
   
@@ -77,17 +73,14 @@ onMounted(async () => {
     document.documentElement.classList.add('dark-theme')
   }
 
-  // 2. 加载数据
   await refreshSource()
 
-  // 3. 监听下载进度
   EventsOn("download_progress", (data) => {
     state.progress = data.percentage
     state.status = `正在下载: ${data.percentage.toFixed(1)}%`
   })
 })
 
-// --- Methods ---
 
 // 切换主题
 function toggleTheme() {
@@ -109,7 +102,6 @@ async function refreshSource() {
     
     const keys = Object.keys(state.sources)
     if (keys.length > 0) {
-      // 如果当前选中的源还在列表里，保持选中；否则选第一个
       if (!state.sources[state.currentSource]) {
         state.currentSource = keys.find(k => k.toLowerCase().includes('r2')) || keys[0]
       }
@@ -131,7 +123,7 @@ function saveSettings() {
   refreshSource()
 }
 
-// 扁平化数据（用于搜索）
+// 扁平化数据
 function flattenFiles(node, list) {
   if (node.files) list.push(...node.files)
   if (node.dirs) node.dirs.forEach(d => flattenFiles(d, list))
@@ -143,7 +135,7 @@ async function loadDirectory() {
   
   try {
     state.status = "正在获取目录..."
-    state.fileTree = {} // 清空以触发动画
+    state.fileTree = {}
     state.selectedFile = null
     state.allFlatFiles = []
     
@@ -162,7 +154,7 @@ async function loadDirectory() {
   }
 }
 
-// 搜索逻辑
+// 搜索
 const isSearching = computed(() => searchQuery.value.trim().length > 0)
 const searchResults = computed(() => {
   if (!isSearching.value) return []
@@ -170,7 +162,7 @@ const searchResults = computed(() => {
   return state.allFlatFiles.filter(f => f.name.toLowerCase().includes(q))
 })
 
-// 下载逻辑
+// 下载
 async function download() {
   if (!state.selectedFile || state.isDownloading) return
   const config = state.sources[state.currentSource]
@@ -203,7 +195,7 @@ function formatSize(size) {
   return num + ' B'
 }
 
-// 图标颜色逻辑
+// 图标颜色
 function getFileIconColor(name) {
   const ext = name.split('.').pop().toLowerCase()
   if (ext === 'pdf') return '#ef4444' // red
@@ -368,7 +360,6 @@ function getFileIconColor(name) {
 </template>
 
 <style>
-/* --- CSS 变量与主题定义 --- */
 :root {
   /* 浅色主题 (默认) */
   --bg-primary: #ffffff;
@@ -385,21 +376,20 @@ function getFileIconColor(name) {
 }
 
 :root.dark-theme {
-  /* 深色主题 (优化后的深蓝色) */
-  --bg-primary: #020617; /* 非常深的蓝黑 */
-  --bg-secondary: #0f172a; /* Slate 900 */
-  --bg-tertiary: #1e293b; /* Slate 800 */
-  --text-primary: #f8fafc; /* 白色文字 */
+  /* 深色主题 (深蓝色) */
+  --bg-primary: #020617;
+  --bg-secondary: #0f172a; 
+  --bg-tertiary: #1e293b;
+  --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --accent-color: #3b82f6; 
   --accent-hover: #60a5fa;
   --border-color: #1e293b;
-  --card-bg: #0f172a; /* 卡片也是深蓝 */
+  --card-bg: #0f172a;
   --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
   --input-bg: #1e293b;
 }
 
-/* 全局重置 */
 * { box-sizing: border-box; }
 body { 
   margin: 0; 
@@ -410,10 +400,8 @@ body {
   overflow: hidden;
 }
 
-/* 布局 */
 .app-container { display: flex; height: 100vh; width: 100vw; }
 
-/* 侧边栏 */
 .sidebar { 
   background: var(--bg-secondary); 
   border-right: 1px solid var(--border-color); 

@@ -9,13 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	stdruntime "runtime" //以此别名引入标准库 runtime，避免与 wails runtime 冲突
+	stdruntime "runtime"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// SourceConfig, FileNode, DownloadProgress 保持不变
 type SourceConfig struct {
 	JsonUrl string `json:"json_url"`
 	FileKey string `json:"file_key"`
@@ -49,7 +48,6 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-// --- 核心业务逻辑 ---
 
 func (a *App) FetchSourceList(url string) (map[string]SourceConfig, error) {
 	runtime.LogPrintf(a.ctx, "正在获取源列表: %s", url)
@@ -89,7 +87,6 @@ func (a *App) FetchDirectory(url string) (*FileNode, error) {
 	return &root, nil
 }
 
-// DownloadFile 保持原有逻辑，但由前端传入完整路径
 func (a *App) DownloadFile(url string, savePath string) error {
 	runtime.LogPrintf(a.ctx, "开始下载: %s -> %s", url, savePath)
 
@@ -119,14 +116,11 @@ func (a *App) DownloadFile(url string, savePath string) error {
 	return err
 }
 
-// --- 新增功能 ---
-
-// SelectSavePath 唤起系统保存文件对话框
 func (a *App) SelectSavePath(defaultName string) string {
 	selection, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:            "另存为",
 		DefaultFilename:  defaultName,
-		DefaultDirectory: "", // 默认为空，系统会自动记忆上次位置或使用文档目录
+		DefaultDirectory: "",
 	})
 	if err != nil {
 		return ""
@@ -134,24 +128,19 @@ func (a *App) SelectSavePath(defaultName string) string {
 	return selection
 }
 
-// OpenFileDir 打开文件所在的资源管理器
 func (a *App) OpenFileDir(filePath string) error {
 	runtime.LogPrintf(a.ctx, "尝试打开文件夹: %s", filePath)
 	
-	// 获取目录路径
 	dir := filepath.Dir(filePath)
 	
 	var cmd *exec.Cmd
 	
 	switch stdruntime.GOOS {
 	case "windows":
-		// Windows: explorer /select,filename 会选中该文件
 		cmd = exec.Command("explorer", "/select,", filePath)
 	case "darwin":
-		// macOS
 		cmd = exec.Command("open", "-R", filePath)
 	case "linux":
-		// Linux: 通常使用 xdg-open 打开目录
 		cmd = exec.Command("xdg-open", dir)
 	default:
 		return fmt.Errorf("unsupported platform")
@@ -160,7 +149,6 @@ func (a *App) OpenFileDir(filePath string) error {
 	return cmd.Start()
 }
 
-// --- 进度条辅助 ---
 
 type WriteCounter struct {
 	Total      float64
@@ -174,8 +162,6 @@ func (wc *WriteCounter) Write(p []byte) (int, error) {
 	wc.Downloaded += float64(n)
 	percent := (wc.Downloaded / wc.Total) * 100
 	
-	// 简单限流：实际生产中可以使用 ticker 减少事件发送频率
-	// 这里为了演示流畅性，暂时全发
 	runtime.EventsEmit(wc.Ctx, "download_progress", DownloadProgress{
 		Filename:   wc.Filename,
 		Percentage: percent,
