@@ -48,16 +48,23 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
       - name: Build Binary
+        shell: bash
         run: |
           PLATFORM_NAME=$(echo ${{ matrix.platform }} | tr / -)
-          
-          echo "Building for ${{ matrix.platform }}..."
+          FILENAME="JNU-EXAM-Downloader-${{ github.ref_name }}-${PLATFORM_NAME}${{ matrix.ext }}"
+          echo "Building target: $FILENAME ..."
           
           wails build \
             -platform ${{ matrix.platform }} \
             -clean \
             ${{ matrix.args }} \
-            -o JNU-EXAM-Downloader-${{ github.ref_name }}-${PLATFORM_NAME}${{ matrix.ext }}
+            -o "$FILENAME"
+
+          cd build/bin
+          
+          sha256sum "$FILENAME" | awk '{print $1}' > "$FILENAME.sha256"
+          
+          echo "SHA256 generated for $FILENAME"
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
@@ -80,13 +87,25 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
       - name: Build
+        shell: bash
         run: |
-          wails build -platform windows/arm64 -clean -o JNU-EXAM-Downloader-${{ github.ref_name }}-windows-arm64.exe
+          FILENAME="JNU-EXAM-Downloader-${{ github.ref_name }}-windows-arm64.exe"
+          
+          echo "Building target: $FILENAME ..."
+
+          wails build -platform windows/arm64 -clean -o "$FILENAME"
+          
+          cd build/bin
+          sha256sum "$FILENAME" | awk '{print $1}' > "$FILENAME.sha256"
+          
+          echo "SHA256 generated for $FILENAME"
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: build/bin/JNU-EXAM-Downloader-${{ github.ref_name }}-windows-arm64.exe
+          files: |
+            build/bin/JNU-EXAM-Downloader-${{ github.ref_name }}-windows-arm64.exe
+            build/bin/JNU-EXAM-Downloader-${{ github.ref_name }}-windows-arm64.exe.sha256
           prerelease: ${{ contains(github.ref, '-') }}
   
