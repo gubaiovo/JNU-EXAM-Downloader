@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +17,43 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+const CurrentVersion = "2.1.0"
+const MetadataURL = "https://www.gubaiovo.com/jnu-exam/metadata.json"
+
+type PlatformInfo struct {
+    Url      string `json:"url"`
+    Checksum string `json:"checksum"`
+}
+
+type UpdateInfo struct {
+    Version   string                  `json:"version"`
+    Force     bool                    `json:"force"`
+    Desc      string                  `json:"desc"`
+    Platforms map[string]PlatformInfo `json:"platforms"`
+}
+
+type NoticeInfo struct {
+    Show    bool   `json:"show"`
+    Id      string `json:"id"`
+    Title   string `json:"title"`
+    Content string `json:"content"`
+}
+
+type AppMetadata struct {
+    Notice NoticeInfo `json:"notice"`
+    Update UpdateInfo `json:"update"`
+}
+
+type CheckResult struct {
+    HasUpdate    bool       `json:"has_update"`
+    CurrentVer   string     `json:"current_ver"`
+    RemoteVer    string     `json:"remote_ver"`
+    UpdateDesc   string     `json:"update_desc"`
+    IsForce      bool       `json:"is_force"`
+    DownloadURL  string     `json:"download_url"`
+    Checksum     string     `json:"checksum"`
+    Notice       NoticeInfo `json:"notice"`
+}
 type SourceConfig struct {
 	JsonUrl string `json:"json_url"`
 	FileKey string `json:"file_key"`
@@ -45,9 +84,31 @@ func NewApp() *App {
 }
 
 func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
+    a.ctx = ctx
+    go a.cleanupOldFile()
 }
 
+func (a *App) cleanupOldFile() {
+    exePath, err := os.Executable()
+    if err != nil {
+        return
+    }
+    oldPath := exePath + ".old"
+    if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+        return
+    }
+    runtime.LogPrintf(a.ctx, "发现旧版本文件: %s，准备清理...", oldPath)
+    for i := 0; i < 5; i++ {
+        time.Sleep(1 * time.Second)
+        err = os.Remove(oldPath)
+        if err == nil {
+            runtime.LogPrintf(a.ctx, "成功删除旧版本备份文件 (第 %d 次尝试)", i+1)
+            return
+        }
+        runtime.LogPrintf(a.ctx, "删除失败 (尝试 %d/5): %v", i+1, err)
+    }
+    runtime.LogPrintf(a.ctx, "放弃清理：旧文件可能仍被占用")
+}
 
 func (a *App) FetchSourceList(url string) (map[string]SourceConfig, error) {
 	runtime.LogPrintf(a.ctx, "正在获取源列表: %s", url)
@@ -167,4 +228,136 @@ func (wc *WriteCounter) Write(p []byte) (int, error) {
 		Percentage: percent,
 	})
 	return n, nil
+}
+
+func (a *App) CheckAppUpdate() (*CheckResult, error) {
+    runtime.LogPrintf(a.ctx, ">>>>> 开始检查更新，URL: %s", MetadataURL)
+
+    client := http.Client{Timeout: 5 * time.Second}
+    resp, err := client.Get(MetadataURL)
+    if err != nil {
+        runtime.LogPrintf(a.ctx, ">>>>> 网络请求失败: %v", err)
+        return nil, err
+    }
+    defer resp.Body.Close()
+
+    var meta AppMetadata
+    if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+        runtime.LogPrintf(a.ctx, ">>>>> JSON 解析失败: %v", err) 
+        return nil, err
+    }
+
+    runtime.LogPrintf(a.ctx, ">>>>> 解析到的远程版本: %s", meta.Update.Version)
+
+    platformKey := fmt.Sprintf("%s-%s", stdruntime.GOOS, stdruntime.GOARCH)
+    runtime.LogPrintf(a.ctx, ">>>>> 当前系统生成的 Key: [%s]", platformKey)
+
+    var target PlatformInfo
+    var ok bool
+    
+    if meta.Update.Platforms != nil {
+        target, ok = meta.Update.Platforms[platformKey]
+        runtime.LogPrintf(a.ctx, ">>>>> Map 匹配结果: %v, 下载地址: %s", ok, target.Url)
+    } else {
+        runtime.LogPrintf(a.ctx, ">>>>> 警告: meta.Update.Platforms 为空 (JSON 结构可能不匹配)")
+    }
+
+    hasUpdate := (meta.Update.Version != CurrentVersion) && ok
+    runtime.LogPrintf(a.ctx, ">>>>> 最终判定 hasUpdate: %v (本地: %s, 远程: %s)", hasUpdate, CurrentVersion, meta.Update.Version)
+
+    return &CheckResult{
+        HasUpdate:   hasUpdate,
+        CurrentVer:  CurrentVersion,
+        RemoteVer:   meta.Update.Version,
+        UpdateDesc:  meta.Update.Desc,
+        IsForce:     meta.Update.Force,
+        DownloadURL: target.Url,
+        Checksum:    target.Checksum,
+        Notice:      meta.Notice,
+    }, nil
+}
+
+func (a *App) PerformSelfUpdate(url string, checksum string) error {
+    runtime.LogPrintf(a.ctx, "开始自动更新流程...")
+
+    exePath, err := os.Executable()
+    if err != nil {
+        return fmt.Errorf("无法获取程序路径: %v", err)
+    }
+    
+    tmpPath := exePath + ".new"
+    
+    runtime.LogPrintf(a.ctx, "正在下载更新: %s", url)
+    resp, err := http.Get(url)
+    if err != nil {
+        return fmt.Errorf("下载失败: %v", err)
+    }
+    defer resp.Body.Close()
+
+    out, err := os.Create(tmpPath)
+    if err != nil {
+        return fmt.Errorf("无法创建临时文件: %v", err)
+    }
+    
+    hasher := sha256.New()
+    contentLen := resp.ContentLength
+    
+    buf := make([]byte, 32*1024)
+    var downloaded int64 = 0
+    
+    for {
+        n, readErr := resp.Body.Read(buf)
+        if n > 0 {
+            out.Write(buf[:n])
+            hasher.Write(buf[:n])
+            
+            downloaded += int64(n)
+            if contentLen > 0 {
+                percent := (float64(downloaded) / float64(contentLen)) * 100
+                runtime.EventsEmit(a.ctx, "update_progress", percent)
+            }
+        }
+        if readErr == io.EOF {
+            break
+        }
+        if readErr != nil {
+            out.Close()
+            return readErr
+        }
+    }
+    out.Close()
+
+    if checksum != "" {
+        calculatedHash := hex.EncodeToString(hasher.Sum(nil))
+        if calculatedHash != checksum {
+            os.Remove(tmpPath)
+            return fmt.Errorf("文件校验失败! 期望: %s, 实际: %s", checksum, calculatedHash)
+        }
+    }
+
+    oldPath := exePath + ".old"
+    
+    os.Remove(oldPath)
+
+    if err := os.Rename(exePath, oldPath); err != nil {
+        os.Remove(tmpPath)
+        return fmt.Errorf("无法重命名当前程序: %v", err)
+    }
+
+    if err := os.Rename(tmpPath, exePath); err != nil {
+        os.Rename(oldPath, exePath)
+        return fmt.Errorf("无法应用新文件: %v", err)
+    }
+
+    if stdruntime.GOOS != "windows" {
+        os.Chmod(exePath, 0755)
+    }
+
+    runtime.LogPrintf(a.ctx, "更新完成，准备重启...")
+    cmd := exec.Command(exePath)
+    cmd.Start()
+
+    os.Exit(0)
+    
+    return nil
 }

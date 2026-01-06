@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, onMounted, ref, computed, watch } from 'vue'
-import { FetchSourceList, FetchDirectory, DownloadFile, SelectSavePath, OpenFileDir } from '../wailsjs/go/main/App'
+import { FetchSourceList, FetchDirectory, DownloadFile, SelectSavePath, OpenFileDir, CheckAppUpdate, PerformSelfUpdate } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime'
 import FileTree from './components/FileTree.vue'
 
@@ -28,10 +28,18 @@ const state = reactive({
   lastDownloadPath: "",
   configUrl: DEFAULT_CONFIG_URL,
   isDark: false, 
-  showSettings: false 
+  showSettings: false ,
+
+  showNotice: false,
+  noticeData: {},
+  
+  showUpdate: false,
+  updateData: {},
+  isUpdating: false,
+  updateProgress: 0,
+  updateStatus: ''
 })
 
-// --- Resizable Sidebar Logic ---
 const sidebarWidth = ref(300) 
 const isResizing = ref(false)
 
@@ -62,7 +70,6 @@ function stopResize() {
 
 const searchQuery = ref("")
 
-// --- Lifecycle & Init ---
 onMounted(async () => {
   const storedUrl = localStorage.getItem('custom_source_url')
   if (storedUrl) state.configUrl = storedUrl
@@ -79,9 +86,67 @@ onMounted(async () => {
     state.progress = data.percentage
     state.status = `正在下载: ${data.percentage.toFixed(1)}%`
   })
+
+  checkUpdateAndNotice()
+  EventsOn("update_progress", (percent) => {
+    state.updateProgress = percent
+  })
 })
 
+async function checkUpdateAndNotice() {
+  try {
+    const res = await CheckAppUpdate()
+    
+    if (res.notice && res.notice.show) {
+      const lastRead = localStorage.getItem('notice_id')
+      if (lastRead !== res.notice.id) {
+        state.noticeData = res.notice
+        state.showNotice = true
+      }
+    }
 
+    if (res.has_update) {
+      state.updateData = {
+        version: res.remote_ver,
+        desc: res.update_desc,
+        force: res.is_force,
+        url: res.download_url,
+        checksum: res.checksum
+      }
+      state.showUpdate = true
+    }
+    
+  } catch (e) {
+    console.error("检查更新失败:", e)
+  }
+}
+function closeNotice() {
+  console.log("关闭公告")
+  state.showNotice = false
+  if (state.noticeData && state.noticeData.id) {
+    localStorage.setItem('notice_id', state.noticeData.id)
+  }
+}
+
+async function startUpdate() {
+  if (state.isUpdating) return
+  if (!state.updateData.url) {
+    alert("未找到当前平台的下载地址，请手动去 GitHub 下载。")
+    return
+  }
+
+  state.isUpdating = true
+  state.updateStatus = "正在下载更新包..."
+  state.updateProgress = 0
+
+  try {
+    await PerformSelfUpdate(state.updateData.url, state.updateData.checksum)
+  } catch (e) {
+    state.updateStatus = "更新失败: " + e
+    state.isUpdating = false
+    alert("更新失败: " + e)
+  }
+}
 // 切换主题
 function toggleTheme() {
   state.isDark = !state.isDark
@@ -337,6 +402,51 @@ function getFileIconColor(name) {
       <div class="status-bar">{{ state.status }}</div>
     </div>
 
+    <transition name="fade">
+      <div v-if="state.showNotice" class="modal-overlay" style="z-index: 9999;" @click.self="closeNotice">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>📢 {{ state.noticeData.title }}</h3>
+            <button class="close-btn" @click="closeNotice">×</button>
+          </div>
+          <div class="modal-body">
+            <p style="white-space: pre-wrap; line-height: 1.6;">{{ state.noticeData.content }}</p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-primary" @click="closeNotice">我知道了</button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <transition name="fade">
+      <div v-if="state.showUpdate" class="modal-overlay" style="z-index: 201;">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>🚀 发现新版本 {{ state.updateData.version }}</h3>
+            <button v-if="!state.updateData.force && !state.isUpdating" class="close-btn" @click="state.showUpdate = false">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="update-log" style="background: var(--bg-secondary); padding: 10px; border-radius: 6px; max-height: 150px; overflow-y: auto; margin-bottom: 15px;">
+              <p style="white-space: pre-wrap; font-size: 13px; color: var(--text-secondary);">{{ state.updateData.desc }}</p>
+            </div>
+            
+            <div v-if="state.isUpdating">
+               <div class="progress-track" style="margin-bottom: 5px;">
+                  <div class="progress-fill" :style="{ width: state.updateProgress + '%' }"></div>
+               </div>
+               <p style="text-align: center; font-size: 12px; color: var(--text-secondary);">{{ state.updateStatus }} {{ state.updateProgress.toFixed(0) }}%</p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button v-if="!state.updateData.force && !state.isUpdating" class="btn-text" @click="state.showUpdate = false">暂不更新</button>
+            <button class="btn-primary" @click="startUpdate" :disabled="state.isUpdating">
+              {{ state.isUpdating ? '更新中...' : '立即更新并重启' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
     <transition name="fade">
       <div v-if="state.showSettings" class="modal-overlay" @click.self="state.showSettings = false">
         <div class="modal">
