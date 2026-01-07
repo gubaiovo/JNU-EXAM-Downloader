@@ -6,7 +6,7 @@ export function CheckAppUpdate():Promise<main.CheckResult>;
 
 export function DownloadFile(arg1:string,arg2:string):Promise<void>;
 
-export function FetchDirectory(arg1:string):Promise<main.FileNode>;
+export function FetchDirectory(arg1:string):Promise<any>;
 
 export function FetchSourceList(arg1:string):Promise<Record<string, main.SourceConfig>>;
 

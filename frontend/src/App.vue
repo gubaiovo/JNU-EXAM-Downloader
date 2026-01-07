@@ -11,7 +11,9 @@ const Icons = {
   Search: `<path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
   Download: `<path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
   FolderOpen: `<path d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
-  Refresh: `<path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
+  Refresh: `<path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
+  Bell: `<path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
+  Update: `<path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
 }
 
 const DEFAULT_CONFIG_URL = "https://www.gubaiovo.com/jnu-exam/source_list.json"
@@ -39,7 +41,11 @@ const state = reactive({
   updateProgress: 0,
   updateStatus: ''
 })
-
+function showMessage(content, title = "提示") {
+  state.msgTitle = title
+  state.msgContent = content
+  state.showMsg = true
+}
 const sidebarWidth = ref(300) 
 const isResizing = ref(false)
 
@@ -120,6 +126,53 @@ async function checkUpdateAndNotice() {
     console.error("检查更新失败:", e)
   }
 }
+
+async function manualShowNotice() {
+  state.status = "正在获取最新公告..."
+  try {
+    const res = await CheckAppUpdate() 
+    
+    if (res.notice && res.notice.show) {
+      state.noticeData = res.notice
+      state.showNotice = true 
+      state.status = "就绪"
+    } else {
+      showMessage("当前暂无系统公告", "系统通知")
+      state.status = "暂无公告"
+    }
+  } catch (e) {
+    state.status = "获取公告失败: " + e
+  }
+}
+
+async function manualCheckUpdate() {
+  state.status = "正在检查更新..."
+  try {
+    const res = await CheckAppUpdate()
+    
+    const hasUpdate = res.has_update || res.HasUpdate
+    
+    if (hasUpdate) {
+      state.updateData = {
+        version: res.remote_ver || res.RemoteVer,
+        desc: res.update_desc || res.UpdateDesc,
+        force: res.is_force || res.IsForce,
+        url: res.download_url || res.DownloadURL,
+        checksum: res.checksum || res.Checksum
+      }
+      state.showUpdate = true
+      state.status = "发现新版本"
+    } else {
+      const currentVer = res.current_ver || res.CurrentVer
+      showMessage(`当前已是最新版本 (v${currentVer})`, "检查完成")
+      state.status = "已是最新版本"
+    }
+  } catch (e) {
+    state.status = "检查更新失败: " + e
+    showMessage("检查失败，请检查网络连接\n" + e, "错误")
+  }
+}
+
 function closeNotice() {
   console.log("关闭公告")
   state.showNotice = false
@@ -131,7 +184,7 @@ function closeNotice() {
 async function startUpdate() {
   if (state.isUpdating) return
   if (!state.updateData.url) {
-    alert("未找到当前平台的下载地址，请手动去 GitHub 下载。")
+    showMessage("未找到当前平台的下载地址，请手动去 GitHub 下载。", "错误")
     return
   }
 
@@ -144,7 +197,7 @@ async function startUpdate() {
   } catch (e) {
     state.updateStatus = "更新失败: " + e
     state.isUpdating = false
-    alert("更新失败: " + e)
+    showMessage("更新失败: " + e, "错误")
   }
 }
 // 切换主题
@@ -233,7 +286,7 @@ async function download() {
   const config = state.sources[state.currentSource]
   const url = state.selectedFile[config.file_key]
   
-  if (!url) return alert("无下载链接")
+  if (!url) return showMessage("该文件暂无下载链接", "无法下载")
 
   const savePath = await SelectSavePath(state.selectedFile.name)
   if (!savePath) return
@@ -281,9 +334,18 @@ function getFileIconColor(name) {
           <span class="brand-text">期末无挂</span>
         </div>
         <div class="header-actions">
+          <button class="icon-btn" @click="manualShowNotice" title="查看公告">
+            <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5" v-html="Icons.Bell"></svg>
+          </button>
+          
+          <button class="icon-btn" @click="manualCheckUpdate" title="检查更新">
+            <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5" v-html="Icons.Update"></svg>
+          </button>
+
           <button class="icon-btn" @click="toggleTheme" title="切换主题">
             <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5" v-html="state.isDark ? Icons.Moon : Icons.Sun"></svg>
           </button>
+          
           <button class="icon-btn" @click="state.showSettings = true" title="设置">
             <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5" v-html="Icons.Settings"></svg>
           </button>
@@ -462,6 +524,21 @@ function getFileIconColor(name) {
           <div class="modal-footer">
             <button class="btn-text" @click="state.configUrl = DEFAULT_CONFIG_URL">恢复默认</button>
             <button class="btn-primary" @click="saveSettings">保存并刷新</button>
+          </div>
+        </div>
+      </div>
+    </transition>
+    <transition name="fade">
+      <div v-if="state.showMsg" class="modal-overlay" style="z-index: 300;" @click.self="state.showMsg = false">
+        <div class="modal" style="width: 320px;"> <div class="modal-header">
+            <h3>💡 {{ state.msgTitle }}</h3>
+            <button class="close-btn" @click="state.showMsg = false">×</button>
+          </div>
+          <div class="modal-body">
+            <p style="white-space: pre-wrap; line-height: 1.6; text-align: center;">{{ state.msgContent }}</p>
+          </div>
+          <div class="modal-footer" style="justify-content: center;">
+            <button class="btn-primary" @click="state.showMsg = false">确定</button>
           </div>
         </div>
       </div>

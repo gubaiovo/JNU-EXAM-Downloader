@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	stdruntime "runtime"
+    "sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -60,15 +61,15 @@ type SourceConfig struct {
 	DirUrl  string `json:"dir_url,omitempty"`
 }
 
-type FileNode struct {
-	Name         string      `json:"name"`
-	Path         string      `json:"path"`
-	Size         interface{} `json:"size"`
-	Files        []*FileNode `json:"files,omitempty"`
-	Dirs         []*FileNode `json:"dirs,omitempty"`
-	CfUrl        string      `json:"cf_url,omitempty"`
-	GithubRawUrl string      `json:"github_raw_url,omitempty"`
-}
+// type FileNode struct {
+// 	Name         string      `json:"name"`
+// 	Path         string      `json:"path"`
+// 	Size         interface{} `json:"size"`
+// 	Files        []*FileNode `json:"files,omitempty"`
+// 	Dirs         []*FileNode `json:"dirs,omitempty"`
+// 	CfUrl        string      `json:"cf_url,omitempty"`
+// 	GithubRawUrl string      `json:"github_raw_url,omitempty"`
+// }
 
 type DownloadProgress struct {
 	Filename   string  `json:"filename"`
@@ -77,10 +78,14 @@ type DownloadProgress struct {
 
 type App struct {
 	ctx context.Context
+    dirCache  map[string]interface{}
+    cacheLock sync.RWMutex
 }
 
 func NewApp() *App {
-	return &App{}
+	return &App{
+        dirCache: make(map[string]interface{}),
+    }
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -132,8 +137,16 @@ func (a *App) FetchSourceList(url string) (map[string]SourceConfig, error) {
 	return sources, nil
 }
 
-func (a *App) FetchDirectory(url string) (*FileNode, error) {
-	runtime.LogPrintf(a.ctx, "正在获取目录: %s", url)
+func (a *App) FetchDirectory(url string) (interface{}, error) {
+	a.cacheLock.RLock()
+	if cached, ok := a.dirCache[url]; ok {
+		a.cacheLock.RUnlock()
+		runtime.LogPrintf(a.ctx, "命中缓存: %s", url)
+		return cached, nil
+	}
+	a.cacheLock.RUnlock()
+
+	runtime.LogPrintf(a.ctx, "正在获取目录(网络): %s", url)
 	client := http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -141,11 +154,16 @@ func (a *App) FetchDirectory(url string) (*FileNode, error) {
 	}
 	defer resp.Body.Close()
 
-	var root FileNode
+	var root interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
 		return nil, err
 	}
-	return &root, nil
+
+	a.cacheLock.Lock()
+	a.dirCache[url] = root
+	a.cacheLock.Unlock()
+
+	return root, nil
 }
 
 func (a *App) DownloadFile(url string, savePath string) error {
