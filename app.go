@@ -19,7 +19,7 @@ import (
 )
 
 const CurrentVersion = "2.1.1"
-const MetadataURL = "https://www.gubaiovo.com/jnu-exam/metadata.json"
+const MetadataURL = "https://jnuexam.gubaiovo.com/metadata.json"
 
 type PlatformInfo struct {
     Url      string `json:"url"`
