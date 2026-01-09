@@ -18,7 +18,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const CurrentVersion = "2.1.0"
+const CurrentVersion = "2.1.1"
 const MetadataURL = "https://www.gubaiovo.com/jnu-exam/metadata.json"
 
 type PlatformInfo struct {
