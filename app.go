@@ -18,7 +18,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const CurrentVersion = "2.1.1"
+const CurrentVersion = "2.1.0"
 const MetadataURL = "https://jnuexam.gubaiovo.com/metadata.json"
 
 type PlatformInfo struct {
@@ -303,7 +303,13 @@ func (a *App) PerformSelfUpdate(url string, checksum string) error {
         return fmt.Errorf("无法获取程序路径: %v", err)
     }
     
-    tmpPath := exePath + ".new"
+    dir := filepath.Dir(exePath)
+    targetName := "JNU-EXAM-Downloader"
+    if stdruntime.GOOS == "windows" {
+        targetName += ".exe"
+    }
+    targetPath := filepath.Join(dir, targetName)
+    tmpPath := filepath.Join(dir, "update.tmp")
     
     runtime.LogPrintf(a.ctx, "正在下载更新: %s", url)
     resp, err := http.Get(url)
@@ -362,17 +368,17 @@ func (a *App) PerformSelfUpdate(url string, checksum string) error {
         return fmt.Errorf("无法重命名当前程序: %v", err)
     }
 
-    if err := os.Rename(tmpPath, exePath); err != nil {
-        os.Rename(oldPath, exePath)
+    if err := os.Rename(tmpPath, targetPath); err != nil {
+        os.Rename(oldPath, exePath) 
         return fmt.Errorf("无法应用新文件: %v", err)
     }
 
     if stdruntime.GOOS != "windows" {
-        os.Chmod(exePath, 0755)
+        os.Chmod(targetPath, 0755)
     }
 
-    runtime.LogPrintf(a.ctx, "更新完成，准备重启...")
-    cmd := exec.Command(exePath)
+    runtime.LogPrintf(a.ctx, "更新完成，准备重启: %s", targetPath)
+    cmd := exec.Command(targetPath)
     cmd.Start()
 
     os.Exit(0)
