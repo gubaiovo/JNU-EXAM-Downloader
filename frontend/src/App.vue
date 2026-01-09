@@ -264,8 +264,9 @@ async function loadDirectory() {
     
     const flatList = []
     flattenFiles(data, flatList)
-    state.allFlatFiles = flatList
-    state.fileTree = data
+    state.allFlatFiles = Object.freeze(flatList)
+    state.fileTree = Object.freeze(data)
+
     state.status = `已加载 ${state.currentSource}`
   } catch (e) {
     state.status = "目录加载失败: " + e
@@ -402,8 +403,8 @@ function getFileIconColor(name) {
     <div class="resize-handle" @mousedown="startResize"></div>
 
     <div class="main-content">
-      <transition name="slide-up" mode="out-in">
-        <div v-if="state.selectedFile" :key="state.selectedFile.path" class="file-card align-left">
+      <transition name="fade">
+        <div v-if="state.selectedFile" class="file-card align-left">
           <div class="file-preview">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" class="preview-icon" :style="{ color: getFileIconColor(state.selectedFile.name) }">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"></path>
@@ -692,7 +693,7 @@ body {
   box-shadow: var(--card-shadow); 
   text-align: center;
   border: 1px solid var(--border-color);
-  transition: all 0.3s;
+  transition: background-color 0.3s, box-shadow 0.3s;
 }
 
 .file-card .file-preview { 
@@ -796,10 +797,15 @@ body {
 .btn-text:hover { color: var(--text-primary); }
 
 /* Vue 过渡动画 */
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-active, .fade-leave-active { 
+  transition: opacity 0.2s ease; 
+  will-change: opacity; /* GPU */
+}
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-
-.slide-up-enter-active, .slide-up-leave-active { transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+.slide-up-enter-active, .slide-up-leave-active { 
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  will-change: opacity, transform; 
+}
 .slide-up-enter-from { opacity: 0; transform: translateY(20px); }
 .slide-up-leave-to { opacity: 0; transform: translateY(-20px); }
 
