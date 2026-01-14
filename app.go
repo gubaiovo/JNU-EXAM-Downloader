@@ -19,7 +19,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const CurrentVersion = "2.1.1"
+const CurrentVersion = "2.2.0"
 const MetadataURL = "https://jnuexam.gubaiovo.com/metadata.json"
 
 type DownloadItem struct {
