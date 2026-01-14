@@ -528,7 +528,7 @@ function getFileIconColor(name) {
             <button class="close-btn" @click="closeNotice">×</button>
           </div>
           <div class="modal-body">
-            <p style="white-space: pre-wrap; line-height: 1.6;">{{ state.noticeData.content }}</p>
+            <p style="white-space: pre-wrap; line-height: 1.6; text-align: left;">{{ state.noticeData.content }}</p>
           </div>
           <div class="modal-footer">
             <button class="btn-primary" @click="closeNotice">我知道了</button>
