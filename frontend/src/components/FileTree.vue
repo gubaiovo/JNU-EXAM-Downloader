@@ -5,10 +5,11 @@ defineOptions({ name: 'FileTree' })
 
 const props = defineProps({
   node: Object, 
-  depth: { type: Number, default: 0 }
+  depth: { type: Number, default: 0 },
+  checkedSet: { type: Set, default: () => new Set() }
 })
 
-const emit = defineEmits(['select-file'])
+const emit = defineEmits(['select-file', 'check-file'])
 const isOpen = ref(false)
 
 function buildTree(flatData) {
@@ -78,7 +79,9 @@ function toggle() {
         :key="'dir-'+index" 
         :node="dir" 
         :depth="depth + 1"
+        :checked-set="checkedSet" 
         @select-file="(f) => emit('select-file', f)" 
+        @check-file="(f) => emit('check-file', f)"
       />
       
       <div 
@@ -88,6 +91,14 @@ function toggle() {
         :style="{ paddingLeft: ((depth + 1) * 16 + 28) + 'px' }"
         @click.stop="emit('select-file', file)"
       >
+        <div class="check-wrap" @click.stop>
+            <input 
+              type="checkbox" 
+              :checked="checkedSet.has(file)" 
+              @change="emit('check-file', file)"
+            >
+        </div>
+
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16" class="text-file">
           <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" stroke-width="2"/>
           <path d="M13 2v7h7" stroke-width="2"/>
@@ -104,6 +115,7 @@ function toggle() {
 .node-row, .file-row {
   display: flex; align-items: center; padding-top: 6px; padding-bottom: 6px; padding-right: 10px;
   cursor: default; transition: background-color 0.1s; border-radius: 4px; margin: 1px 4px;
+  justify-content: flex-start;
 }
 .node-row:hover, .file-row:hover { background-color: var(--bg-tertiary); }
 .node-row.clickable { cursor: pointer; }
@@ -121,7 +133,11 @@ function toggle() {
 
 .node-name, .file-name {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+  text-align: left;
 }
 .file-row { color: var(--text-secondary); }
 .file-row:hover { color: var(--text-primary); }
+
+.check-wrap { display: flex; align-items: center; margin-right: 8px; }
+.check-wrap input { margin: 0; cursor: pointer; }
 </style>

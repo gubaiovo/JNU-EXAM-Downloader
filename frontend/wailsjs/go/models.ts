@@ -62,6 +62,22 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DownloadItem {
+	    name: string;
+	    url: string;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DownloadItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.url = source["url"];
+	        this.size = source["size"];
+	    }
+	}
 
 }
 

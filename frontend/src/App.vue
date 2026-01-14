@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, onMounted, ref, computed, watch } from 'vue'
-import { FetchSourceList, FetchDirectory, DownloadFile, SelectSavePath, OpenFileDir, CheckAppUpdate, PerformSelfUpdate } from '../wailsjs/go/main/App'
+import { FetchSourceList, FetchDirectory, DownloadFile, SelectSavePath, OpenFileDir, CheckAppUpdate, PerformSelfUpdate, DownloadFilesAsZip } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime'
 import FileTree from './components/FileTree.vue'
 
@@ -39,7 +39,9 @@ const state = reactive({
   updateData: {},
   isUpdating: false,
   updateProgress: 0,
-  updateStatus: ''
+  updateStatus: '',
+
+  checkedFiles: new Set()
 })
 function showMessage(content, title = "提示") {
   state.msgTitle = title
@@ -255,6 +257,7 @@ async function loadDirectory() {
     state.status = "正在获取目录..."
     state.fileTree = {}
     state.selectedFile = null
+    state.checkedFiles.clear()
     state.allFlatFiles = []
     
     const config = state.sources[state.currentSource]
@@ -281,9 +284,56 @@ const searchResults = computed(() => {
   return state.allFlatFiles.filter(f => f.name.toLowerCase().includes(q))
 })
 
+function toggleCheck(file) {
+  if (state.checkedFiles.has(file)) {
+    state.checkedFiles.delete(file)
+  } else {
+    state.checkedFiles.add(file)
+  }
+}
+
 // 下载
 async function download() {
+  if (state.isDownloading) return
+
+  // 1. 多文件打包下载逻辑
+  if (state.checkedFiles.size > 0) {
+    const defaultName = "batch_download.zip"
+    const savePath = await SelectSavePath(defaultName)
+    if (!savePath) return
+
+    const config = state.sources[state.currentSource]
+    // 构建下载列表
+    const downloadList = Array.from(state.checkedFiles).map(f => ({
+      name: f.name,
+      url: f[config.file_key], // 获取真实链接
+      size: Number(f.size) || 0
+    })).filter(item => item.url) // 过滤掉没有链接的文件
+
+    if (downloadList.length === 0) return showMessage("选中的文件没有有效的下载链接", "错误")
+
+    try {
+      state.isDownloading = true
+      state.progress = 0
+      state.status = "正在准备打包下载..."
+      
+      await DownloadFilesAsZip(downloadList, savePath)
+      
+      state.status = "打包下载完成"
+      state.progress = 100
+      state.lastDownloadPath = savePath
+      state.checkedFiles.clear() // 下载完清空选中
+    } catch (e) {
+      state.status = "打包失败: " + e
+      showMessage(e.toString(), "下载错误")
+    } finally {
+      state.isDownloading = false
+    }
+    return
+  }
+  
   if (!state.selectedFile || state.isDownloading) return
+
   const config = state.sources[state.currentSource]
   const url = state.selectedFile[config.file_key]
   
@@ -389,7 +439,12 @@ function getFileIconColor(name) {
           </div>
 
           <div v-else-if="state.fileTree.name" key="tree">
-            <FileTree :node="state.fileTree" @select-file="(f) => state.selectedFile = f" />
+            <FileTree 
+              :node="state.fileTree" 
+              :checked-set="state.checkedFiles"
+              @select-file="(f) => state.selectedFile = f" 
+              @check-file="toggleCheck"
+            />
           </div>
           
           <div v-else key="loading" class="loading-state">
@@ -436,7 +491,7 @@ function getFileIconColor(name) {
             >
               <svg v-if="!state.isDownloading" viewBox="0 0 24 24" fill="none" class="btn-icon" v-html="Icons.Download"></svg>
               <span v-else class="spinner-mini"></span>
-              {{ state.isDownloading ? '下载中...' : '下载文件' }}
+              {{ state.isDownloading ? '下载中...' : (state.checkedFiles.size > 0 ? `下载选中 (${state.checkedFiles.size})` : '下载文件') }}
             </button>
 
             <button 
@@ -661,11 +716,16 @@ body {
 .list-item {
   padding: 8px 16px; display: flex; align-items: center; gap: 10px; cursor: pointer;
   border-bottom: 1px solid transparent; transition: background 0.1s;
+  color: var(--text-primary);
+  justify-content: flex-start;
 }
 .list-item:hover { background: var(--bg-tertiary); }
 .list-item.active { background: var(--accent-color); color: white; }
 .list-item.active .path { color: rgba(255,255,255,0.8); }
-.list-info { overflow: hidden; }
+.list-info { 
+  overflow: hidden; 
+  text-align: left; 
+}
 .list-info .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
 .list-info .path { font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .empty-tip { text-align: center; color: var(--text-secondary); padding: 20px; font-size: 13px; }

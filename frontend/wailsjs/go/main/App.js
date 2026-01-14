@@ -10,6 +10,10 @@ export function DownloadFile(arg1, arg2) {
   return window['go']['main']['App']['DownloadFile'](arg1, arg2);
 }
 
+export function DownloadFilesAsZip(arg1, arg2) {
+  return window['go']['main']['App']['DownloadFilesAsZip'](arg1, arg2);
+}
+
 export function FetchDirectory(arg1) {
   return window['go']['main']['App']['FetchDirectory'](arg1);
 }

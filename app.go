@@ -14,12 +14,19 @@ import (
 	stdruntime "runtime"
     "sync"
 	"time"
+    "archive/zip"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const CurrentVersion = "2.1.1"
 const MetadataURL = "https://jnuexam.gubaiovo.com/metadata.json"
+
+type DownloadItem struct {
+	Name string `json:"name"`
+	Url  string `json:"url"`
+	Size int64  `json:"size"`
+}
 
 type PlatformInfo struct {
     Url      string `json:"url"`
@@ -193,6 +200,69 @@ func (a *App) DownloadFile(url string, savePath string) error {
 
 	_, err = io.Copy(out, io.TeeReader(resp.Body, counter))
 	return err
+}
+
+func (a *App) DownloadFilesAsZip(files []DownloadItem, savePath string) error {
+	runtime.LogPrintf(a.ctx, "开始批量下载打包: %d 个文件 -> %s", len(files), savePath)
+
+	outFile, err := os.Create(savePath)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	zipWriter := zip.NewWriter(outFile)
+	defer zipWriter.Close()
+
+	var totalSize float64
+	for _, f := range files {
+		totalSize += float64(f.Size)
+	}
+
+	var currentDownloaded float64
+	client := http.Client{Timeout: 30 * time.Second}
+
+	for _, file := range files {
+		writer, err := zipWriter.Create(file.Name)
+		if err != nil {
+			return err
+		}
+
+		resp, err := client.Get(file.Url)
+		if err != nil {
+			return fmt.Errorf("下载文件 %s 失败: %v", file.Name, err)
+		}
+
+		buf := make([]byte, 32*1024)
+		for {
+			n, readErr := resp.Body.Read(buf)
+			if n > 0 {
+				_, writeErr := writer.Write(buf[:n])
+				if writeErr != nil {
+					resp.Body.Close()
+					return writeErr
+				}
+				currentDownloaded += float64(n)
+				if totalSize > 0 {
+					percent := (currentDownloaded / totalSize) * 100
+					runtime.EventsEmit(a.ctx, "download_progress", DownloadProgress{
+						Filename:   "打包下载中...",
+						Percentage: percent,
+					})
+				}
+			}
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				resp.Body.Close()
+				return readErr
+			}
+		}
+		resp.Body.Close()
+	}
+
+	return nil
 }
 
 func (a *App) SelectSavePath(defaultName string) string {
